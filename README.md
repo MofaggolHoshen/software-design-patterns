@@ -2,6 +2,15 @@
 
 A comprehensive reference guide to software design patterns with C# examples. Patterns are organised into five categories covering the classic GoF catalogue, distributed systems, and microservices architecture.
 
+## SOLID Design Principles
+
+The patterns in this guide are built on the five **SOLID** principles — Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, and Dependency Inversion. These principles form the foundational guidelines for writing maintainable, extensible object-oriented code.
+
+- 📄 [docs/solid.md](docs/solid.md) — full explanation of each principle
+- 💻 [source/solid.cs](source/solid.cs) — annotated C# examples
+
+---
+
 ## Categories
 
 | # | Category | Patterns |
@@ -107,4 +116,4 @@ A comprehensive reference guide to software design patterns with C# examples. Pa
 
 ## See Also
 
-- [SOLID Design Principles](source/solid.cs) — foundational OOP principles underlying most patterns
+- [SOLID Design Principles](docs/solid.md) — foundational OOP principles underlying most patterns ([C# examples](source/solid.cs))
