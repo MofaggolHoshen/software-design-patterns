@@ -126,7 +126,7 @@ class LegacySingleton
 }
 #endregion
 
-#region  ── Approach 4: Simple Example ─────────────────────────
+#region  ── Approach 4: Simple Scenario ─────────────────────────
 // Business requirement: 
 // I need to call external API, but I want to limit the number of calls to 1 per minute.
 // I want to share the same instance of the API client across my application, but I also want to ensure that only one instance is created and used throughout the application.
