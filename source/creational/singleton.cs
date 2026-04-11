@@ -192,25 +192,21 @@ class Program
         MetricsCollector.Instance.RecordRequest();
         Console.WriteLine($"Total requests: {MetricsCollector.Instance.TotalRequests}"); // 3
 
-        // ── Prefer DI over static access in application code ──────
-        Console.WriteLine("\nTip: In production code, register the singleton with the DI container:");
-        Console.WriteLine("  services.AddSingleton<AppConfiguration>();");
-        Console.WriteLine("Then inject it via constructor — avoids hidden global-state coupling.");
-
         Console.WriteLine("\n--- Approach 3: Double-check lock (for reference only) ---");
         var legacy1 = LegacySingleton.Instance;
         var legacy2 = LegacySingleton.Instance;
         Console.WriteLine($"Same instance? {ReferenceEquals(legacy1, legacy2)}");  // True
 
-        Console.WriteLine("\n--- Approach 4: Simple Example ---");
+        Console.WriteLine("\n--- Approach 4: Simple Scenario ---");
         var apiClient1 = ApiClient.Instance;
         var apiClient2 = ApiClient.Instance;
         Console.WriteLine($"Same instance? {ReferenceEquals(apiClient1, apiClient2)}");  // True
         apiClient1.CallApi();  // API call made.
         apiClient2.CallApi();  // API call blocked: rate limit exceeded.
 
-
-
-
+        // ── Prefer DI over static access in application code ──────
+        Console.WriteLine("\nTip: In production code, register the singleton with the DI container:");
+        Console.WriteLine("  services.AddSingleton<AppConfiguration>();");
+        Console.WriteLine("Then inject it via constructor — avoids hidden global-state coupling.");
     }
 }

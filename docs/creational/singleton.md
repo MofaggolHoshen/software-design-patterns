@@ -95,3 +95,25 @@ LoggerFactory.Instance.Log("Application started");
 - The "global" access hides dependencies — prefer constructor injection so dependencies are explicit.
 - Multiple isolated instances are needed during testing.
 - The instance holds mutable state accessed from many unrelated parts of the codebase (this creates hidden coupling).
+
+## Pros and Cons
+
+### Pros
+
+| # | Benefit | Detail |
+|---|---------|--------|
+| 1 | **Controlled single instance** | Guarantees exactly one object is ever created, preventing duplicate resource allocation. |
+| 2 | **Lazy initialisation** | With `Lazy<T>`, the instance is created only on first access — no cost if never used. |
+| 3 | **Reduced memory footprint** | Avoids repeatedly allocating heavy objects such as DB connection pools or config stores. |
+| 4 | **Global access point** | A shared resource is conveniently reachable across the codebase without passing it explicitly. |
+| 5 | **Thread safety** | `Lazy<T>` and `static readonly` both guarantee single initialisation without manual locking. |
+
+### Cons
+
+| # | Drawback | Detail |
+|---|----------|--------|
+| 1 | **Hidden global state** | Classes that use a singleton carry an implicit dependency, making behaviour hard to reason about. |
+| 2 | **Difficult to unit test** | Replacing or mocking a singleton requires interfaces, wrapper abstractions, or reflection. |
+| 3 | **Violates SRP** | The class is responsible for both its own logic and managing its own lifetime. |
+| 4 | **Concurrency bottleneck** | A singleton holding shared mutable state can become a contention point under high load. |
+| 5 | **Hinders dependency injection** | Static access couples code to a concrete type instead of an abstraction, undermining DI benefits. |
