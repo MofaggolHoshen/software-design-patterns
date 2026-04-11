@@ -47,10 +47,15 @@ class ConfigurationManager
     private static readonly Lazy<ConfigurationManager> _lazy =
         new(() => new ConfigurationManager());
 
+    // InstanceId is assigned once inside the constructor.
+    // No matter how many variables point to the singleton,
+    // they all see the same GUID — proving one instance exists.
+    public Guid InstanceId { get; } = Guid.NewGuid();
+
     // Private constructor prevents external instantiation
     private ConfigurationManager()
     {
-        Console.WriteLine("Configuration loaded (once).");
+        Console.WriteLine($"Configuration loaded (once). InstanceId = {InstanceId}");
     }
 
     public static ConfigurationManager Instance => _lazy.Value;
@@ -64,7 +69,12 @@ class LoggerFactory
     // CLR guarantees static field initialisation is thread-safe
     public static readonly LoggerFactory Instance = new();
 
-    private LoggerFactory() { }
+    public Guid InstanceId { get; } = Guid.NewGuid();
+
+    private LoggerFactory()
+    {
+        Console.WriteLine($"LoggerFactory initialised (once). InstanceId = {InstanceId}");
+    }
 
     public void Log(string message) => Console.WriteLine($"[LOG] {message}");
 }
@@ -72,11 +82,35 @@ class LoggerFactory
 // ── Usage ─────────────────────────────────────────────────
 var cfg1 = ConfigurationManager.Instance;
 var cfg2 = ConfigurationManager.Instance;
-Console.WriteLine(ReferenceEquals(cfg1, cfg2)); // True — same instance
+
+// Both variables hold the same GUID — only one instance was ever created.
+Console.WriteLine(cfg1.InstanceId);                   // e.g. 5943aac6-e0a9-...
+Console.WriteLine(cfg2.InstanceId);                   // same GUID
+Console.WriteLine(cfg1.InstanceId == cfg2.InstanceId); // True
+Console.WriteLine(ReferenceEquals(cfg1, cfg2));        // True — same instance
 
 ConfigurationManager.Instance.GetSetting("ConnectionString");
 LoggerFactory.Instance.Log("Application started");
 ```
+
+### Proving a Single Instance with a GUID
+
+Each singleton class exposes a `public Guid InstanceId { get; } = Guid.NewGuid();` property. `Guid.NewGuid()` generates a **universally unique value at object construction time**. Because `InstanceId` is assigned inside the object initialiser (before the constructor body runs), it is set exactly once when the instance is first created.
+
+No matter how many variables reference the singleton — `cfg1`, `cfg2`, or a call to `Instance` minutes later — they all read the **same GUID**, which is concrete, observable proof that only a single instance was ever constructed.
+
+```
+=== Singleton Pattern ===
+
+--- Approach 1: Lazy<T> ---
+  AppConfiguration initialised (once). InstanceId = 5943aac6-e0a9-4969-be4d-24e2ac374d50
+  cfg1.InstanceId = 5943aac6-e0a9-4969-be4d-24e2ac374d50
+  cfg2.InstanceId = 5943aac6-e0a9-4969-be4d-24e2ac374d50
+  Same GUID?      True
+  Same instance?  True
+```
+
+> If two instances were ever created (i.e., the pattern broke), each would produce a **different** GUID and the `Same GUID?` check would print `False`.
 
 ## Approaches
 
@@ -92,11 +126,22 @@ sealed class AppConfiguration
 
     public static AppConfiguration Instance => _lazy.Value;
 
+    // Assigned once at object construction — same value on every access proves one instance.
+    public Guid InstanceId { get; } = Guid.NewGuid();
+
     private AppConfiguration()
     {
-        // Expensive initialisation here — runs only once, on first access
+        Console.WriteLine($"  AppConfiguration initialised (once). InstanceId = {InstanceId}");
     }
 }
+
+// Proof:
+var cfg1 = AppConfiguration.Instance;
+var cfg2 = AppConfiguration.Instance;
+Console.WriteLine(cfg1.InstanceId);                    // e.g. 5943aac6-e0a9-...
+Console.WriteLine(cfg2.InstanceId);                    // same GUID
+Console.WriteLine(cfg1.InstanceId == cfg2.InstanceId); // True
+Console.WriteLine(ReferenceEquals(cfg1, cfg2));         // True
 ```
 
 **Why it is recommended:**
@@ -104,6 +149,7 @@ sealed class AppConfiguration
 - Truly lazy — the instance is not created until `Instance` is first accessed.
 - `sealed` prevents subclasses from breaking the single-instance guarantee.
 - Private constructor prevents external `new` calls.
+- The printed GUID proves that `AppConfiguration` is constructed exactly once — any two variables will report the same `InstanceId`.
 
 ---
 
@@ -116,18 +162,30 @@ class MetricsCollector
 {
     public static readonly MetricsCollector Instance = new();
 
-    private MetricsCollector() { }
+    // Same GUID proof: assigned once when the class is first loaded.
+    public Guid InstanceId { get; } = Guid.NewGuid();
+
+    private MetricsCollector()
+    {
+        Console.WriteLine($"  MetricsCollector initialised (once). InstanceId = {InstanceId}");
+    }
 
     public void RecordRequest() => Interlocked.Increment(ref _requestCount);
     public int TotalRequests => _requestCount;
     private int _requestCount;
 }
+
+// Proof:
+var mc1 = MetricsCollector.Instance;
+var mc2 = MetricsCollector.Instance;
+Console.WriteLine(mc1.InstanceId == mc2.InstanceId); // True — same GUID, same instance
 ```
 
 **Trade-off vs `Lazy<T>`:**
 - Slightly faster (no `_lazy.Value` indirection).
 - No lazy loading — instance is always created, even if never used.
 - Good choice for lightweight objects that are almost certainly needed.
+- GUID is still the same regardless of when or how many times `Instance` is accessed.
 
 ---
 
@@ -141,7 +199,13 @@ class LegacySingleton
     private static LegacySingleton? _instance;
     private static readonly object _lock = new();
 
-    private LegacySingleton() { }
+    // Same GUID proof works here too.
+    public Guid InstanceId { get; } = Guid.NewGuid();
+
+    private LegacySingleton()
+    {
+        Console.WriteLine($"  LegacySingleton initialised (once). InstanceId = {InstanceId}");
+    }
 
     public static LegacySingleton Instance
     {
@@ -158,6 +222,12 @@ class LegacySingleton
         }
     }
 }
+
+// Proof:
+var l1 = LegacySingleton.Instance;
+var l2 = LegacySingleton.Instance;
+Console.WriteLine(l1.InstanceId == l2.InstanceId); // True
+Console.WriteLine(ReferenceEquals(l1, l2));         // True
 ```
 
 **Why to avoid today:**
@@ -177,8 +247,15 @@ sealed class ApiClient
     private static readonly Lazy<ApiClient> _lazy = new(() => new ApiClient());
     public static ApiClient Instance => _lazy.Value;
 
+    // Same GUID proof.
+    public Guid InstanceId { get; } = Guid.NewGuid();
+
     private DateTime _lastCallTime = DateTime.MinValue;
-    private ApiClient() { }
+
+    private ApiClient()
+    {
+        Console.WriteLine($"  ApiClient initialised (once). InstanceId = {InstanceId}");
+    }
 
     public void CallApi()
     {
@@ -191,9 +268,16 @@ sealed class ApiClient
         _lastCallTime = DateTime.UtcNow;
     }
 }
+
+// Proof:
+var a1 = ApiClient.Instance;
+var a2 = ApiClient.Instance;
+Console.WriteLine(a1.InstanceId == a2.InstanceId); // True — same client, same rate-limit state
+a1.CallApi(); // API call made.
+a2.CallApi(); // API call blocked: rate limit exceeded.
 ```
 
-**Key insight:** the singleton lifetime keeps `_lastCallTime` alive for the duration of the process, so the rate limit is enforced globally, not per-caller.
+**Key insight:** the singleton lifetime keeps `_lastCallTime` alive for the duration of the process, so the rate limit is enforced globally, not per-caller. The identical `InstanceId` from `a1` and `a2` confirms they share the same state.
 
 ---
 

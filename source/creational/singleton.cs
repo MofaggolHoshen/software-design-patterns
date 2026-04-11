@@ -53,6 +53,9 @@ sealed class AppConfiguration
 
     public static AppConfiguration Instance => _lazy.Value;
 
+    // A GUID assigned once at construction — proves the same instance is always returned.
+    public Guid InstanceId { get; } = Guid.NewGuid();
+
     private readonly Dictionary<string, string> _settings = new();
 
     private AppConfiguration()
@@ -61,7 +64,7 @@ sealed class AppConfiguration
         _settings["DatabaseUrl"] = "Server=prod-db;Database=app;";
         _settings["MaxConnections"] = "100";
         _settings["LogLevel"] = "Warning";
-        Console.WriteLine("  AppConfiguration initialised (once).");
+        Console.WriteLine($"  AppConfiguration initialised (once). InstanceId = {InstanceId}");
     }
 
     public string Get(string key) =>
@@ -84,15 +87,18 @@ sealed class AppConfiguration
 //  3. Cannot pass constructor arguments — the initialiser runs before any external data is available.
 //  4. Harder to reset or replace in tests — readonly field cannot be swapped without reflection.
 //  5. Initialisation exceptions are wrapped — a thrown exception becomes a TypeInitializationException, obscuring the root cause.
-class MetricsCollector
+sealed class MetricsCollector
 {
     public static readonly MetricsCollector Instance = new();
+
+    // A GUID assigned once at construction — proves the same instance is always returned.
+    public Guid InstanceId { get; } = Guid.NewGuid();
 
     private int _requestCount;
 
     private MetricsCollector()
     {
-        Console.WriteLine("  MetricsCollector initialised (once).");
+        Console.WriteLine($"  MetricsCollector initialised (once). InstanceId = {InstanceId}");
     }
 
     public void RecordRequest() => Interlocked.Increment(ref _requestCount);
@@ -104,12 +110,18 @@ class MetricsCollector
 #region  ── Approach 3: Double-check lock (for reference only) ─────
 // Use Lazy<T> instead — this approach is shown only to illustrate
 // what Lazy<T> replaces.
-class LegacySingleton
+sealed class LegacySingleton
 {
     private static LegacySingleton? _instance;
     private static readonly object _lock = new();
 
-    private LegacySingleton() { }
+    // A GUID assigned once at construction — proves the same instance is always returned.
+    public Guid InstanceId { get; } = Guid.NewGuid();
+
+    private LegacySingleton()
+    {
+        Console.WriteLine($"  LegacySingleton initialised (once). InstanceId = {InstanceId}");
+    }
 
     public static LegacySingleton Instance
     {
@@ -134,39 +146,28 @@ class LegacySingleton
 // I want to share the same instance of the API client across my application, but I also want to ensure that only one instance is created and used throughout the application.
 sealed class ApiClient
 {
-    private static ApiClient? _instance = new();
+    private static readonly Lazy<ApiClient> _lazy = new(() => new ApiClient());
+    public static ApiClient Instance => _lazy.Value;
+
+    // A GUID assigned once at construction — proves the same instance is always returned.
+    public Guid InstanceId { get; } = Guid.NewGuid();
 
     private DateTime _lastCallTime = DateTime.MinValue;
 
-    public static ApiClient Instance
-    {
-        get
-        {
-            if (_instance is null)
-            {
-                _instance = new ApiClient();
-            }
-            return _instance;
-        }
-    }
-
     private ApiClient()
     {
-        Console.WriteLine("  ApiClient initialised (once).");
+        Console.WriteLine($"  ApiClient initialised (once). InstanceId = {InstanceId}");
     }
 
     public void CallApi()
     {
-        var now = DateTime.UtcNow;
-        if ((now - _lastCallTime).TotalSeconds < 60)
+        if ((DateTime.UtcNow - _lastCallTime).TotalSeconds < 60)
         {
-            Console.WriteLine("  API call blocked: rate limit exceeded.");
+            Console.WriteLine("API call blocked: rate limit exceeded.");
             return;
         }
-
-        // Simulate API call
-        Console.WriteLine("  API call made.");
-        _lastCallTime = now;
+        Console.WriteLine("API call made.");
+        _lastCallTime = DateTime.UtcNow;
     }
 }
 #endregion
@@ -196,25 +197,39 @@ class Program
         //var cfg1 = new AppConfiguration();  // Error: constructor is private
         var cfg1 = AppConfiguration.Instance;
         var cfg2 = AppConfiguration.Instance;
-        Console.WriteLine($"Same instance? {ReferenceEquals(cfg1, cfg2)}");  // True
-        Console.WriteLine($"DatabaseUrl:   {AppConfiguration.Instance.Get("DatabaseUrl")}");
+        Console.WriteLine($"  cfg1.InstanceId = {cfg1.InstanceId}");
+        Console.WriteLine($"  cfg2.InstanceId = {cfg2.InstanceId}");
+        Console.WriteLine($"  Same GUID?      {cfg1.InstanceId == cfg2.InstanceId}");   // True
+        Console.WriteLine($"  Same instance?  {ReferenceEquals(cfg1, cfg2)}");          // True
+        Console.WriteLine($"  DatabaseUrl:    {AppConfiguration.Instance.Get("DatabaseUrl")}");
 
         Console.WriteLine("\n--- Approach 2: Static readonly ---");
         // Instance already created when class is loaded
         MetricsCollector.Instance.RecordRequest();
         MetricsCollector.Instance.RecordRequest();
         MetricsCollector.Instance.RecordRequest();
-        Console.WriteLine($"Total requests: {MetricsCollector.Instance.TotalRequests}"); // 3
+        var mc1 = MetricsCollector.Instance;
+        var mc2 = MetricsCollector.Instance;
+        Console.WriteLine($"  mc1.InstanceId  = {mc1.InstanceId}");
+        Console.WriteLine($"  mc2.InstanceId  = {mc2.InstanceId}");
+        Console.WriteLine($"  Same GUID?      {mc1.InstanceId == mc2.InstanceId}");     // True
+        Console.WriteLine($"  Total requests: {MetricsCollector.Instance.TotalRequests}"); // 3
 
         Console.WriteLine("\n--- Approach 3: Double-check lock (for reference only) ---");
         var legacy1 = LegacySingleton.Instance;
         var legacy2 = LegacySingleton.Instance;
-        Console.WriteLine($"Same instance? {ReferenceEquals(legacy1, legacy2)}");  // True
+        Console.WriteLine($"  legacy1.InstanceId = {legacy1.InstanceId}");
+        Console.WriteLine($"  legacy2.InstanceId = {legacy2.InstanceId}");
+        Console.WriteLine($"  Same GUID?         {legacy1.InstanceId == legacy2.InstanceId}"); // True
+        Console.WriteLine($"  Same instance?     {ReferenceEquals(legacy1, legacy2)}");        // True
 
-        Console.WriteLine("\n--- Approach 4: Simple Scenario ---");
+        Console.WriteLine("\n--- Approach 4: Simple Scenario (Rate-Limited API Client) ---");
         var apiClient1 = ApiClient.Instance;
         var apiClient2 = ApiClient.Instance;
-        Console.WriteLine($"Same instance? {ReferenceEquals(apiClient1, apiClient2)}");  // True
+        Console.WriteLine($"  apiClient1.InstanceId = {apiClient1.InstanceId}");
+        Console.WriteLine($"  apiClient2.InstanceId = {apiClient2.InstanceId}");
+        Console.WriteLine($"  Same GUID?            {apiClient1.InstanceId == apiClient2.InstanceId}"); // True
+        Console.WriteLine($"  Same instance?        {ReferenceEquals(apiClient1, apiClient2)}");        // True
         apiClient1.CallApi();  // API call made.
         apiClient2.CallApi();  // API call blocked: rate limit exceeded.
 
