@@ -78,6 +78,157 @@ ConfigurationManager.Instance.GetSetting("ConnectionString");
 LoggerFactory.Instance.Log("Application started");
 ```
 
+## Approaches
+
+### Approach 1 — `Lazy<T>` ⭐ Recommended
+
+`Lazy<T>` is the **idiomatic, modern way** to implement a singleton in C#. The CLR guarantees that the factory lambda runs exactly once, even under concurrent access, without any manual locking.
+
+```csharp
+sealed class AppConfiguration
+{
+    private static readonly Lazy<AppConfiguration> _lazy =
+        new(() => new AppConfiguration());
+
+    public static AppConfiguration Instance => _lazy.Value;
+
+    private AppConfiguration()
+    {
+        // Expensive initialisation here — runs only once, on first access
+    }
+}
+```
+
+**Why it is recommended:**
+- Thread-safe out of the box — no `lock`, no `volatile`, no race condition.
+- Truly lazy — the instance is not created until `Instance` is first accessed.
+- `sealed` prevents subclasses from breaking the single-instance guarantee.
+- Private constructor prevents external `new` calls.
+
+---
+
+### Approach 2 — `static readonly` (Eager Initialisation)
+
+The CLR guarantees that static field initialisers run exactly once before any code in the class executes. This is the **simplest** approach when you are happy to pay the construction cost at class-load time.
+
+```csharp
+class MetricsCollector
+{
+    public static readonly MetricsCollector Instance = new();
+
+    private MetricsCollector() { }
+
+    public void RecordRequest() => Interlocked.Increment(ref _requestCount);
+    public int TotalRequests => _requestCount;
+    private int _requestCount;
+}
+```
+
+**Trade-off vs `Lazy<T>`:**
+- Slightly faster (no `_lazy.Value` indirection).
+- No lazy loading — instance is always created, even if never used.
+- Good choice for lightweight objects that are almost certainly needed.
+
+---
+
+### Approach 3 — Double-Check Lock ⚠️ Legacy / Reference Only
+
+Shown for historical context. Before `Lazy<T>` was available, a double-check lock was the standard thread-safe pattern. Today `Lazy<T>` is strongly preferred because it is less error-prone.
+
+```csharp
+class LegacySingleton
+{
+    private static LegacySingleton? _instance;
+    private static readonly object _lock = new();
+
+    private LegacySingleton() { }
+
+    public static LegacySingleton Instance
+    {
+        get
+        {
+            if (_instance is null)
+            {
+                lock (_lock)
+                {
+                    _instance ??= new LegacySingleton();   // safe double-check
+                }
+            }
+            return _instance;
+        }
+    }
+}
+```
+
+**Why to avoid today:**
+- Verbose and error-prone; easy to get the double-check wrong.
+- `Lazy<T>` replaces this pattern cleanly with less code.
+- Still correct when written carefully, but not idiomatic in modern C#.
+
+---
+
+### Approach 4 — Practical Scenario (Rate-Limited API Client)
+
+Demonstrates a real-world use case: an external API client where at most one call per minute is allowed. The singleton ensures the last-call timestamp is shared across the entire application.
+
+```csharp
+sealed class ApiClient
+{
+    private static readonly Lazy<ApiClient> _lazy = new(() => new ApiClient());
+    public static ApiClient Instance => _lazy.Value;
+
+    private DateTime _lastCallTime = DateTime.MinValue;
+    private ApiClient() { }
+
+    public void CallApi()
+    {
+        if ((DateTime.UtcNow - _lastCallTime).TotalSeconds < 60)
+        {
+            Console.WriteLine("API call blocked: rate limit exceeded.");
+            return;
+        }
+        Console.WriteLine("API call made.");
+        _lastCallTime = DateTime.UtcNow;
+    }
+}
+```
+
+**Key insight:** the singleton lifetime keeps `_lastCallTime` alive for the duration of the process, so the rate limit is enforced globally, not per-caller.
+
+---
+
+### Approach 5 — Dependency Injection ⭐⭐ Recommended for Production
+
+In application code, **avoid static access entirely**. Register the type as a singleton with the DI container and inject it via constructor. This is the most testable and maintainable approach.
+
+```csharp
+// Registration (Startup / Program.cs)
+builder.Services.AddSingleton<AppConfiguration>();
+builder.Services.AddSingleton<MetricsCollector>();
+
+// Consumption — no static access, no hidden coupling
+class OrderService
+{
+    private readonly AppConfiguration _config;
+
+    public OrderService(AppConfiguration config)   // injected by DI
+    {
+        _config = config;
+    }
+}
+```
+
+**Why it is the best practice:**
+- Dependencies are **explicit** — visible in the constructor signature.
+- Fully **testable** — swap the real implementation with a mock by registering a different type.
+- Lifetime is managed by the container; no boilerplate in the class itself.
+- Works seamlessly with `IOptions<T>`, `ILogger<T>`, and other framework abstractions.
+
+> **Rule of thumb:** Use `Lazy<T>` (Approach 1) in library or utility code with no DI container.  
+> Use DI registration (Approach 5) in application code (ASP.NET Core, Worker Services, etc.).
+
+---
+
 ## Key Takeaways
 
 - `Lazy<T>` is the idiomatic thread-safe singleton in modern C#.

@@ -21,6 +21,8 @@
 //   1. Lazy<T>          — recommended, thread-safe, lazy initialisation
 //   2. Static readonly  — thread-safe, eager initialisation
 //   3. Double-check lock — shown for reference; Lazy<T> is preferred
+//   4. Simple scenario — a practical example of a singleton with specific business logic
+//   5. DI recommendation — prefer registering singletons with the DI container in production code to avoid hidden global-state coupling.
 // ============================================================
 #region  ── Approach 1: Lazy<T> — recommended ─────────────────────
 // Lazy<T> guarantees thread-safe, one-time initialisation.
@@ -169,7 +171,19 @@ sealed class ApiClient
 }
 #endregion
 
+#region ── Approach 5: DI recommendation ─────────────────────────
+// In production code, prefer registering the singleton with the DI container rather than using static access.
+// This avoids hidden global-state coupling and makes dependencies explicit.    
+// Example with Microsoft.Extensions.DependencyInjection:
+/*
+public void ConfigureServices(IServiceCollection services)
+{
+    services.AddSingleton<AppConfiguration>();
+    // Other service registrations...
+}
+*/
 
+#endregion
 // ── Example usage ───────────────────────────────────────────
 class Program
 {
