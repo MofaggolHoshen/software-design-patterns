@@ -11,6 +11,17 @@
 //   MacFactory        — Concrete Factory (macOS family)
 //   IButton/ICheckbox — Abstract Products
 //   Application       — Client (depends only on abstractions)
+//
+// Benefits:
+//   - Enforces consistency among products of the same family.
+//   - Makes it easy to add new product families without changing existing code.
+// Drawbacks:
+//   - Can be overkill for simple applications with few products.
+// Usage:
+//   - UI toolkits that support multiple platforms.
+// 
+// Run:
+//   dotnet run .\source\creational\abstract-factory.cs
 // ============================================================
 
 // ── Abstract products ──────────────────────────────────────
@@ -74,14 +85,36 @@ class Application(IUIFactory factory)
 }
 
 // ── Demo ───────────────────────────────────────────────────
-Console.WriteLine("=== Abstract Factory Pattern ===\n");
+class Program
+{
+    static void Main()
+    {
+        Console.WriteLine("=== Abstract Factory Pattern ===\n");
 
-Console.WriteLine("--- Windows UI ---");
-new Application(new WindowsFactory()).RenderUI();
+        Console.WriteLine("--- Windows UI ---");
+        new Application(new WindowsFactory()).RenderUI();
 
-Console.WriteLine("\n--- macOS UI ---");
-new Application(new MacFactory()).RenderUI();
+        Console.WriteLine("\n--- macOS UI ---");
+        new Application(new MacFactory()).RenderUI();
 
-// To add a "Linux" family: create LinuxButton, LinuxCheckbox, LinuxFactory.
-// No existing code needs to change.
-Console.WriteLine("\nAdding a new family requires no changes to Application or existing factories.");
+        // To add a "Linux" family: create LinuxButton, LinuxCheckbox, LinuxFactory.
+        // No existing code needs to change.
+        Console.WriteLine("\nAdding a new family requires no changes to Application or existing factories.");
+
+        // Simulate user choice of platform
+        Console.WriteLine("Select platform (1: Windows, 2: macOS): ");
+        var choice = Console.ReadLine();
+
+        IUIFactory factory = choice switch
+        {
+            "1" => new WindowsFactory(),
+            "2" => new MacFactory(),
+            _ => throw new ArgumentException("Invalid choice")
+        };
+
+        var app = new Application(factory);
+        app.RenderUI();
+
+
+    }
+}
