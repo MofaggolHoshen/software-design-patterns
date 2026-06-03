@@ -1,18 +1,16 @@
 // ============================================================
-// Saga — C# Simulation (Choreography-based)
+// Saga — C# Simulation
 // ============================================================
 //
 // Intent: Manage a distributed business transaction as a
-// sequence of local service transactions. Each step emits
-// an event; subsequent services react. On failure, compensating
-// transactions undo previous steps in reverse order.
+// sequence of local service transactions with compensation.
 //
-// Simulates the Order Placement Saga:
-//   1. OrdersService   creates order
-//   2. InventoryService reserves stock   (compensate: release)
-//   3. PaymentService  charges customer  (compensate: refund)
-//   4. OrdersService   confirms order
+// This file shows two common Saga styles:
+//   1. Choreography-based saga   (event-driven)
+//   2. Orchestration-based saga (central coordinator)
 // ============================================================
+
+#region Choreography Based Saga
 
 // ── Domain events ─────────────────────────────────────────
 interface IDomainEvent { string OrderId { get; } }
@@ -109,30 +107,145 @@ class PaymentSagaParticipant(EventBus bus, bool simulateFailure = false)
     }
 }
 
-void WireUpSaga(EventBus bus, bool inventoryFail, bool paymentFail)
+#endregion
+
+#region Orchestration Based Saga
+
+// ── Orchestration-based saga ───────────────────────────────
+record PlaceOrder(string OrderId, string Sku, int Qty, decimal Amount);
+
+class InventoryService(bool simulateFailure = false)
 {
-    var orders = new OrdersSagaParticipant(bus);
-    var inventory = new InventorySagaParticipant(bus, inventoryFail);
-    var payment = new PaymentSagaParticipant(bus, paymentFail);
+    public Task<bool> ReserveAsync(string orderId, string sku, int qty)
+    {
+        if (simulateFailure)
+        {
+            Console.WriteLine($"    [Inventory] Reserve failed for order {orderId}");
+            return Task.FromResult(false);
+        }
 
-    bus.Subscribe<OrderCreated>(inventory.On);
-    bus.Subscribe<InventoryReserved>(payment.On);
-    bus.Subscribe<PaymentCharged>(orders.On);
-    bus.Subscribe<PaymentFailed>(orders.On);
-    bus.Subscribe<OrderCancelled>(inventory.On);
+        Console.WriteLine($"    [Inventory] Reserved {qty}x{sku} for {orderId}");
+        return Task.FromResult(true);
+    }
 
-    orders.CreateOrder("WIDGET-PRO", 2, 59.98m);
+    public Task ReleaseAsync(string orderId)
+    {
+        Console.WriteLine($"    [Inventory] COMPENSATION: Released reservation for {orderId}");
+        return Task.CompletedTask;
+    }
 }
 
-// ── Demo ────────────────────────────────────────────────
-Console.WriteLine("=== Saga (Choreography) ===\n");
+class PaymentService(bool simulateFailure = false)
+{
+    public Task<bool> ChargeAsync(string orderId, decimal amount)
+    {
+        if (simulateFailure)
+        {
+            Console.WriteLine($"    [Payment] Charge failed for order {orderId}");
+            return Task.FromResult(false);
+        }
 
-Console.WriteLine("--- Happy path ---");
-WireUpSaga(new EventBus(), inventoryFail: false, paymentFail: false);
+        Console.WriteLine($"    [Payment] Charged {amount:C} for order {orderId}");
+        return Task.FromResult(true);
+    }
+}
 
-Console.WriteLine("\n--- Payment failure with compensation ---");
-WireUpSaga(new EventBus(), inventoryFail: false, paymentFail: true);
-// Inventory reservation is released as compensation
+class OrderService
+{
+    public Task ConfirmAsync(string orderId)
+    {
+        Console.WriteLine($"    [Orders] Order {orderId} CONFIRMED");
+        return Task.CompletedTask;
+    }
 
-Console.WriteLine("\n--- Inventory failure ---");
-WireUpSaga(new EventBus(), inventoryFail: true, paymentFail: false);
+    public Task CancelAsync(string orderId, string reason)
+    {
+        Console.WriteLine($"    [Orders] Order {orderId} CANCELLED — {reason}");
+        return Task.CompletedTask;
+    }
+}
+
+class OrderSagaOrchestrator(
+    InventoryService inventory,
+    PaymentService payment,
+    OrderService orders)
+{
+    public async Task HandleAsync(PlaceOrder command)
+    {
+        Console.WriteLine($"  [Saga] Started workflow for order {command.OrderId}");
+
+        var inventoryReserved = await inventory.ReserveAsync(command.OrderId, command.Sku, command.Qty);
+        if (!inventoryReserved)
+        {
+            await orders.CancelAsync(command.OrderId, "Out of stock");
+            return;
+        }
+
+        var paymentCharged = await payment.ChargeAsync(command.OrderId, command.Amount);
+        if (!paymentCharged)
+        {
+            await inventory.ReleaseAsync(command.OrderId);
+            await orders.CancelAsync(command.OrderId, "Card declined");
+            return;
+        }
+
+        await orders.ConfirmAsync(command.OrderId);
+    }
+}
+
+#endregion
+
+class Program
+{
+    static void WireUpSaga(EventBus bus, bool inventoryFail, bool paymentFail)
+    {
+        var orders = new OrdersSagaParticipant(bus);
+        var inventory = new InventorySagaParticipant(bus, inventoryFail);
+        var payment = new PaymentSagaParticipant(bus, paymentFail);
+
+        bus.Subscribe<OrderCreated>(inventory.On);
+        bus.Subscribe<InventoryReserved>(payment.On);
+        bus.Subscribe<PaymentCharged>(orders.On);
+        bus.Subscribe<PaymentFailed>(orders.On);
+        bus.Subscribe<OrderCancelled>(inventory.On);
+
+        orders.CreateOrder("WIDGET-PRO", 2, 59.98m);
+    }
+
+    static async Task RunOrchestrationSagaAsync(bool inventoryFail, bool paymentFail)
+    {
+        var orderId = Guid.NewGuid().ToString("N")[..8].ToUpper();
+        var orchestrator = new OrderSagaOrchestrator(
+            new InventoryService(inventoryFail),
+            new PaymentService(paymentFail),
+            new OrderService());
+
+        await orchestrator.HandleAsync(new PlaceOrder(orderId, "WIDGET-PRO", 2, 59.98m));
+    }
+
+    static async Task Main()
+    {
+        Console.WriteLine("=== Saga (Choreography) ===\n");
+
+        Console.WriteLine("--- Happy path ---");
+        WireUpSaga(new EventBus(), inventoryFail: false, paymentFail: false);
+
+        Console.WriteLine("\n--- Payment failure with compensation ---");
+        WireUpSaga(new EventBus(), inventoryFail: false, paymentFail: true);
+        // Inventory reservation is released as compensation
+
+        Console.WriteLine("\n--- Inventory failure ---");
+        WireUpSaga(new EventBus(), inventoryFail: true, paymentFail: false);
+
+        Console.WriteLine("\n=== Saga (Orchestration) ===\n");
+
+        Console.WriteLine("--- Happy path ---");
+        await RunOrchestrationSagaAsync(inventoryFail: false, paymentFail: false);
+
+        Console.WriteLine("\n--- Payment failure with compensation ---");
+        await RunOrchestrationSagaAsync(inventoryFail: false, paymentFail: true);
+
+        Console.WriteLine("\n--- Inventory failure ---");
+        await RunOrchestrationSagaAsync(inventoryFail: true, paymentFail: false);
+    }
+}
